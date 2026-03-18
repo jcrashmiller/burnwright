@@ -23,7 +23,7 @@ try:
         QGridLayout, QLabel, QLineEdit, QPushButton, QRadioButton,
         QButtonGroup, QCheckBox, QFileDialog, QListWidget, QListWidgetItem,
         QTextEdit, QProgressBar, QGroupBox, QSizePolicy, QSplitter,
-        QAbstractItemView, QFrame
+        QAbstractItemView, QFrame, QSpinBox
     )
     from PySide6.QtCore import Qt, QThread, Signal, QObject
     from PySide6.QtGui import QFont, QColor, QTextCursor, QPalette
@@ -35,7 +35,7 @@ except ImportError:
             QGridLayout, QLabel, QLineEdit, QPushButton, QRadioButton,
             QButtonGroup, QCheckBox, QFileDialog, QListWidget, QListWidgetItem,
             QTextEdit, QProgressBar, QGroupBox, QSizePolicy, QSplitter,
-            QAbstractItemView, QFrame
+            QAbstractItemView, QFrame, QSpinBox
         )
         from PySide2.QtCore import Qt, QThread, Signal, QObject
         from PySide2.QtGui import QFont, QColor, QTextCursor, QPalette
@@ -106,8 +106,9 @@ class EncodeWorker(QObject):
         input_files = ad["input_files"]
         output_dir  = Path(ad["output_dir"])
         disc_size   = ad["disc_size"]
-        no_split    = ad["no_split"]
-        scene_detect = ad["scene_detect"]
+        no_split      = ad["no_split"]
+        balance_discs = ad.get("balance_discs", False)
+        scene_detect  = ad["scene_detect"]
         force       = ad["force"]
         keep_temp   = ad["keep_temp"]
         dry_run     = ad["dry_run"]
@@ -146,12 +147,16 @@ class EncodeWorker(QObject):
         advance("Calculating disc layout...")
         fmt_config   = config["formats"][fmt_name]
         safety_margin = config.get("safety_margin", 0.95)
-        split_threshold_seconds = config.get("split_threshold_minutes", 60) * 60
+        # Use GUI-provided threshold if available, otherwise fall back to config
+        split_threshold_minutes = ad.get("split_threshold",
+            config.get("split_threshold_minutes", 60))
+        split_threshold_seconds = split_threshold_minutes * 60
 
         discs, capacity_seconds = dm.calculate_disc_layout(
             probed_files, total_duration,
             fmt_config, disc_size, safety_margin,
-            no_split, split_threshold_seconds, log
+            no_split, split_threshold_seconds, log,
+            balance_discs=balance_discs
         )
         dm.format_layout(discs, disc_name, log)
 
@@ -583,18 +588,70 @@ class BurnwrightWindow(QMainWindow):
         grid.addWidget(size_widget, row, 1)
         row += 1
 
+        # Content type
+        grid.addWidget(QLabel("Content type:"), row, 0, Qt.AlignTop)
+        ctype_widget = QWidget()
+        ctype_layout = QVBoxLayout(ctype_widget)
+        ctype_layout.setContentsMargins(0, 0, 0, 0)
+        ctype_layout.setSpacing(4)
+
+        self._ctype_auto    = QRadioButton(
+            "Auto — files under threshold stay whole, longer files split")
+        self._ctype_episode = QRadioButton(
+            "TV episodes — never split a file across discs")
+        self._ctype_movie   = QRadioButton(
+            "Movie / TV special — split across discs as needed")
+        self._ctype_auto.setChecked(True)
+
+        self._ctype_group = QButtonGroup()
+        self._ctype_group.addButton(self._ctype_auto,    1)
+        self._ctype_group.addButton(self._ctype_episode, 2)
+        self._ctype_group.addButton(self._ctype_movie,   3)
+
+        # Threshold row (only active in Auto mode)
+        threshold_row = QWidget()
+        threshold_layout = QHBoxLayout(threshold_row)
+        threshold_layout.setContentsMargins(20, 0, 0, 0)
+        threshold_layout.setSpacing(6)
+        threshold_label = QLabel("Split threshold:")
+        self._threshold_spin = QSpinBox()
+        self._threshold_spin.setRange(5, 360)
+        self._threshold_spin.setValue(60)
+        self._threshold_spin.setSuffix(" min")
+        self._threshold_spin.setMaximumWidth(90)
+        threshold_hint = QLabel(
+            "(files shorter than this stay whole; longer files may be split)")
+        threshold_hint.setStyleSheet("color: #888888; font-size: 8pt;")
+        threshold_layout.addWidget(threshold_label)
+        threshold_layout.addWidget(self._threshold_spin)
+        threshold_layout.addWidget(threshold_hint)
+        threshold_layout.addStretch()
+
+        ctype_layout.addWidget(self._ctype_auto)
+        ctype_layout.addWidget(threshold_row)
+        ctype_layout.addWidget(self._ctype_episode)
+        ctype_layout.addWidget(self._ctype_movie)
+        grid.addWidget(ctype_widget, row, 1)
+        row += 1
+
+        # Enable/disable threshold spinner based on content type selection
+        def _update_threshold_state():
+            self._threshold_spin.setEnabled(self._ctype_auto.isChecked())
+        self._ctype_group.buttonClicked.connect(
+            lambda: _update_threshold_state())
+
         # Checkboxes
         grid.addWidget(QLabel("Options:"), row, 0)
         opts_widget = QWidget()
         opts_layout = QHBoxLayout(opts_widget)
         opts_layout.setContentsMargins(0, 0, 0, 0)
         self._cb_scene   = QCheckBox("Scene detect")
-        self._cb_nosplit = QCheckBox("Episode mode (no split)")
+        self._cb_balance = QCheckBox("Balance discs")
         self._cb_dryrun  = QCheckBox("Dry run (preview only)")
         self._cb_force   = QCheckBox("Force re-encode")
         self._cb_keep    = QCheckBox("Keep temp files")
-        for cb in (self._cb_scene, self._cb_nosplit, self._cb_dryrun,
-                   self._cb_force, self._cb_keep):
+        for cb in (self._cb_scene, self._cb_balance,
+                   self._cb_dryrun, self._cb_force, self._cb_keep):
             opts_layout.addWidget(cb)
         opts_layout.addStretch()
         grid.addWidget(opts_widget, row, 1)
@@ -772,17 +829,30 @@ class BurnwrightWindow(QMainWindow):
         output   = self._output_edit.text().strip()
         size     = "74min" if self._size_74.isChecked() else "80min"
 
+        # Derive no_split and split_threshold from content type selection
+        if self._ctype_episode.isChecked():
+            no_split = True
+            split_threshold = 9999  # effectively infinite — never split
+        elif self._ctype_movie.isChecked():
+            no_split = False
+            split_threshold = 0  # always split — treat everything as movie
+        else:  # Auto
+            no_split = False
+            split_threshold = self._threshold_spin.value()
+
         args_dict = {
-            "format":       fmt,
-            "name":         name,
-            "input_files":  inputs,
-            "output_dir":   output,
-            "disc_size":    size,
-            "no_split":     self._cb_nosplit.isChecked(),
-            "scene_detect": self._cb_scene.isChecked(),
-            "dry_run":      self._cb_dryrun.isChecked(),
-            "force":        self._cb_force.isChecked(),
-            "keep_temp":    self._cb_keep.isChecked(),
+            "format":          fmt,
+            "name":            name,
+            "input_files":     inputs,
+            "output_dir":      output,
+            "disc_size":       size,
+            "no_split":        no_split,
+            "split_threshold": split_threshold,
+            "scene_detect":    self._cb_scene.isChecked(),
+            "balance_discs":   self._cb_balance.isChecked(),
+            "dry_run":         self._cb_dryrun.isChecked(),
+            "force":           self._cb_force.isChecked(),
+            "keep_temp":       self._cb_keep.isChecked(),
         }
 
         self._log_area.clear()
