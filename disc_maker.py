@@ -141,6 +141,13 @@ Examples:
     )
 
     parser.add_argument(
+        "--balance-discs",
+        action="store_true",
+        default=False,
+        help="Distribute content evenly across discs rather than packing each to capacity"
+    )
+
+    parser.add_argument(
         "--config",
         default=os.path.join(os.path.dirname(__file__), "disc_maker_config.json"),
         help="Path to config JSON file (default: disc_maker_config.json)"
@@ -342,7 +349,8 @@ def probe_all(input_files, log):
 
 def calculate_disc_layout(probed_files, total_duration, fmt_config,
                           disc_size, safety_margin, no_split,
-                          split_threshold_seconds, log):
+                          split_threshold_seconds, log,
+                          balance_discs=False):
     """
     Calculate how many discs are needed and what goes on each one.
 
@@ -353,6 +361,8 @@ def calculate_disc_layout(probed_files, total_duration, fmt_config,
     no_split: if True, never cut a file mid-file regardless of duration.
     split_threshold_seconds: files shorter than this are always kept whole
       even if no_split is False. Files longer than this may be split.
+    balance_discs: if True, distribute content evenly across the minimum
+      number of discs rather than packing each disc to capacity.
 
     Returns a list of discs, each disc being a list of segments.
     """
@@ -373,6 +383,22 @@ def calculate_disc_layout(probed_files, total_duration, fmt_config,
 
     log.info(f"Disc capacity: {disc_size}")
     log.info(f"Usable capacity: {usable_bytes / (1024*1024):.1f} MB / {capacity_seconds/60:.1f} minutes per disc")
+
+    # If balancing, calculate minimum disc count and divide evenly
+    if balance_discs:
+        import math
+        min_discs = math.ceil(total_duration / capacity_seconds)
+        if min_discs > 1:
+            balanced_capacity = total_duration / min_discs
+            # Add a small buffer so rounding doesn't push us over
+            capacity_seconds = balanced_capacity + 1.0
+            log.info(
+                f"Balance mode: distributing {total_duration/60:.1f} min "
+                f"evenly across {min_discs} discs "
+                f"(~{balanced_capacity/60:.1f} min each)"
+            )
+        else:
+            log.info("Balance mode: content fits on one disc — no balancing needed")
 
     discs = []
     current_disc = []
@@ -1242,10 +1268,16 @@ def main():
             f"kept whole, longer files may be split"
         )
 
+    balance_discs = getattr(args, 'balance_discs', False) or config.get("balance_discs_default", False)
+
+    if balance_discs:
+        log.info("Balance mode enabled — content will be distributed evenly across discs")
+
     discs, capacity_seconds = calculate_disc_layout(
         probed_files, total_duration,
         fmt_config, disc_size, safety_margin,
-        no_split, split_threshold_seconds, log
+        no_split, split_threshold_seconds, log,
+        balance_discs=balance_discs
     )
     format_layout(discs, args.name, log)
 

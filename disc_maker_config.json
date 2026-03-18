@@ -55,5 +55,6 @@
   "keep_temp": false,
   "log_level": "info",
   "split_threshold_minutes": 60,
-  "no_split_default": false
+  "no_split_default": false,
+  "balance_discs_default": false
 }
