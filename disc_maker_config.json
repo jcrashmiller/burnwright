@@ -1,0 +1,59 @@
+{
+  "formats": {
+    "vcd": {
+      "capacity_seconds": 4440,
+      "capacity_bytes_74min": 681574400,
+      "capacity_bytes_80min": 734003200,
+      "video_bitrate": 1150,
+      "max_bitrate": 1150,
+      "audio_bitrate": 224,
+      "bufsize": 40,
+      "gop_size": 18,
+      "framerate": "29.97",
+      "resolution_standard": [
+        352,
+        240
+      ],
+      "resolution_widescreen": [
+        352,
+        240
+      ],
+      "video_codec": "mpeg1video",
+      "mplex_format": 1,
+      "vcdimager_class": "vcd",
+      "vcdimager_version": "2.0"
+    },
+    "svcd": {
+      "capacity_seconds": 2700,
+      "capacity_bytes_74min": 681574400,
+      "capacity_bytes_80min": 734003200,
+      "video_bitrate": 2000,
+      "max_bitrate": 2600,
+      "audio_bitrate": 224,
+      "bufsize": 224,
+      "gop_size": 15,
+      "framerate": "29.97",
+      "resolution_standard": [
+        480,
+        480
+      ],
+      "resolution_widescreen": [
+        480,
+        272
+      ],
+      "video_codec": "mpeg2video",
+      "mplex_format": 4,
+      "vcdimager_class": "svcd",
+      "vcdimager_version": "1.0"
+    }
+  },
+  "safety_margin": 0.95,
+  "disc_size": "74min",
+  "scene_search_window_seconds": 180,
+  "widescreen_threshold": 1.5,
+  "temp_dir": "/tmp/disc_maker",
+  "keep_temp": false,
+  "log_level": "info",
+  "split_threshold_minutes": 60,
+  "no_split_default": false
+}

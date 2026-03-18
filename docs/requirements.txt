@@ -1,0 +1,10 @@
+# burnwright Python requirements
+# Install with: pip install -r requirements.txt --break-system-packages
+
+# Scene detection for smart split points on multi-disc movies
+scenedetect[opencv]>=0.6.0
+
+# GUI (optional — only needed for burnwright_gui.py)
+# PySide6>=6.0.0
+# Uncomment the line above to install GUI dependencies
+# Or install manually: pip install PySide6 --break-system-packages
