@@ -1167,6 +1167,69 @@ def build_all_images(all_muxed, fmt_config, disc_name,
     return results
 
 
+# ---------------------------------------------------------------------------
+# Filename parsing for human-readable manifest entries
+# ---------------------------------------------------------------------------
+
+def parse_filename(filepath):
+    """
+    Extract a human-readable title from a video filename.
+
+    Handles common naming conventions:
+      - S01E01 style: returns "S01E01 - Title"
+      - Year detection: returns "Title (Year)"
+      - Dot/underscore separated: converts to Title Case
+      - Falls back to cleaned filename stem if nothing matches
+    """
+    import re
+    stem = Path(filepath).stem
+
+    # Replace dots and underscores with spaces
+    cleaned = re.sub(r'[._]', ' ', stem)
+
+    # Check for SxxExx pattern (TV episode)
+    ep_match = re.search(r'(s\d{1,2}e\d{1,2}(?:e\d{1,2})?)', cleaned, re.IGNORECASE)
+    if ep_match:
+        ep_code = ep_match.group(1).upper()
+        after_ep = cleaned[ep_match.end():].strip()
+        after_ep = re.sub(
+            r'\b(720p|1080p|2160p|4k|bluray|blu ray|webrip|'
+            r'web dl|hdtv|dvdrip|xvid|x264|x265|hevc|aac|'
+            r'ac3|dts|repack|proper|extended|directors cut).*',
+            '', after_ep, flags=re.IGNORECASE).strip()
+        if after_ep:
+            title = re.sub(r'\s+', ' ', after_ep).strip().title()
+            return f"{ep_code} - {title}"
+        return ep_code
+
+    # Check for bare episode number: ep01, episode01, e01
+    bare_ep = re.search(r'\b(?:ep(?:isode)?\s*)(\d{1,3})\b', cleaned, re.IGNORECASE)
+    if bare_ep:
+        return f"Episode {int(bare_ep.group(1)):02d}"
+
+    # Strip quality/source/codec tags from the end
+    noise_pattern = (
+        r'\b(720p|1080p|2160p|4k|bluray|blu ray|webrip|web dl|'
+        r'hdtv|dvdrip|xvid|divx|x264|x265|hevc|aac|ac3|dts|'
+        r'repack|proper|extended|theatrical|directors cut|'
+        r'unrated|retail|readnfo|nfofix|internal).*'
+    )
+    cleaned = re.sub(noise_pattern, '', cleaned, flags=re.IGNORECASE).strip()
+
+    # Check for year pattern
+    year_match = re.search(r'\b(19|20)\d{2}\b', cleaned)
+    if year_match:
+        year = year_match.group(0)
+        before_year = cleaned[:year_match.start()].strip()
+        if before_year:
+            title = re.sub(r'\s+', ' ', before_year).strip().title()
+            return f"{title} ({year})"
+
+    # Fall back to cleaned title-cased stem
+    result = re.sub(r'\s+', ' ', cleaned).strip().title()
+    return result if result else Path(filepath).stem
+
+
 def write_manifest(discs, all_muxed, disc_name, output_dir,
                    args_format, disc_size, log):
     """
@@ -1191,11 +1254,11 @@ def write_manifest(discs, all_muxed, disc_name, output_dir,
         lines.append(f"Total duration: {int(disc_duration//60):02d}:{int(disc_duration%60):02d}")
         lines.append("Contents:")
         for seg in disc_segments:
-            fname     = Path(seg["file"]).name
+            display   = parse_filename(seg["file"])
             start_str = f"{int(seg['start']//60):02d}:{int(seg['start']%60):02d}"
             end_str   = f"{int(seg['end']//60):02d}:{int(seg['end']%60):02d}"
             split_tag = " [split]" if seg["is_split"] else ""
-            lines.append(f"  {fname}  {start_str} -> {end_str}{split_tag}")
+            lines.append(f"  {display}  {start_str} -> {end_str}{split_tag}")
         lines.append("Encoded segments:")
         for mp in muxed_paths:
             lines.append(f"  {Path(mp).name}")
