@@ -35,7 +35,7 @@ except ImportError:
             QGridLayout, QLabel, QLineEdit, QPushButton, QRadioButton,
             QButtonGroup, QCheckBox, QFileDialog, QListWidget, QListWidgetItem,
             QTextEdit, QProgressBar, QGroupBox, QSizePolicy, QSplitter,
-            QAbstractItemView, QFrame, QSpinBox
+            QAbstractItemView, QFrame, QSpinBox, QComboBox
         )
         from PySide2.QtCore import Qt, QThread, Signal, QObject
         from PySide2.QtGui import QFont, QColor, QTextCursor, QPalette
@@ -507,21 +507,30 @@ class BurnwrightWindow(QMainWindow):
         grid.setSpacing(8)
         row = 0
 
-        # Format
+        # Format — dynamic dropdown built from config
         grid.addWidget(QLabel("Format:"), row, 0)
         fmt_widget = QWidget()
         fmt_layout = QHBoxLayout(fmt_widget)
         fmt_layout.setContentsMargins(0, 0, 0, 0)
-        self._fmt_vcd  = QRadioButton("VCD")
-        self._fmt_svcd = QRadioButton("SVCD")
-        self._fmt_vcd.setChecked(True)
-        self._fmt_group = QButtonGroup()
-        self._fmt_group.addButton(self._fmt_vcd,  1)
-        self._fmt_group.addButton(self._fmt_svcd, 2)
-        fmt_layout.addWidget(self._fmt_vcd)
-        fmt_layout.addWidget(self._fmt_svcd)
+
+        self._fmt_combo = QComboBox()
+        self._fmt_combo.setMinimumWidth(320)
+        self._fmt_desc  = QLabel("")
+        self._fmt_desc.setStyleSheet("color: #888888; font-size: 8pt;")
+        self._fmt_desc.setWordWrap(True)
+
+        self._populate_format_combo()
+
+        self._fmt_combo.currentIndexChanged.connect(self._on_format_changed)
+        self._on_format_changed()  # populate description on startup
+        fmt_layout.addWidget(self._fmt_combo)
         fmt_layout.addStretch()
         grid.addWidget(fmt_widget, row, 1)
+        row += 1
+
+        # Format description line
+        grid.addWidget(QLabel(""), row, 0)
+        grid.addWidget(self._fmt_desc, row, 1)
         row += 1
 
         # Name
@@ -738,7 +747,9 @@ class BurnwrightWindow(QMainWindow):
         # Minimal fallback
         return {
             "formats": {
-                "vcd":  {"capacity_seconds": 4440, "capacity_bytes_74min": 681574400,
+                "vcd":  {"display_name": "VCD 2.0",
+                         "description": "Video CD — ~74 min per disc, MPEG-1, maximum compatibility",
+                         "capacity_seconds": 4440, "capacity_bytes_74min": 681574400,
                          "capacity_bytes_80min": 734003200, "video_bitrate": 1150,
                          "max_bitrate": 1150, "audio_bitrate": 224, "bufsize": 40,
                          "gop_size": 18, "framerate": "29.97",
@@ -746,7 +757,9 @@ class BurnwrightWindow(QMainWindow):
                          "resolution_widescreen": [352, 240],
                          "video_codec": "mpeg1video", "mplex_format": 1,
                          "vcdimager_class": "vcd", "vcdimager_version": "2.0"},
-                "svcd": {"capacity_seconds": 2700, "capacity_bytes_74min": 681574400,
+                "svcd": {"display_name": "SVCD",
+                         "description": "Super Video CD — ~35-45 min per disc, MPEG-2, better quality",
+                         "capacity_seconds": 2700, "capacity_bytes_74min": 681574400,
                          "capacity_bytes_80min": 734003200, "video_bitrate": 2000,
                          "max_bitrate": 2600, "audio_bitrate": 224, "bufsize": 224,
                          "gop_size": 15, "framerate": "29.97",
@@ -755,6 +768,7 @@ class BurnwrightWindow(QMainWindow):
                          "video_codec": "mpeg2video", "mplex_format": 4,
                          "vcdimager_class": "svcd", "vcdimager_version": "1.0"}
             },
+            "format_groups": {"CD-R Video": ["vcd", "svcd"]},
             "safety_margin": 0.95,
             "disc_size": "74min",
             "scene_search_window_seconds": 180,
@@ -764,6 +778,66 @@ class BurnwrightWindow(QMainWindow):
             "keep_temp": False,
             "log_level": "info"
         }
+
+    def _populate_format_combo(self):
+        """Build the format dropdown from config, grouped by format_groups."""
+        groups  = self._config.get("format_groups", {})
+        formats = self._config.get("formats", {})
+
+        # If no groups defined, just list all formats flat
+        if not groups:
+            for key, fmt in formats.items():
+                display = fmt.get("display_name", key.upper())
+                self._fmt_combo.addItem(display, userData=key)
+            return
+
+        # Add grouped entries
+        for group_name, fmt_keys in groups.items():
+            # Add a disabled separator item for the group label
+            self._fmt_combo.addItem(f"── {group_name} ──", userData=None)
+            idx = self._fmt_combo.count() - 1
+            item = self._fmt_combo.model().item(idx)
+            if item:
+                item.setEnabled(False)
+                from PySide2.QtGui import QColor
+                item.setForeground(QColor("#aaaaaa"))
+
+            for key in fmt_keys:
+                if key in formats:
+                    display = formats[key].get("display_name", key.upper())
+                    self._fmt_combo.addItem(f"  {display}", userData=key)
+
+        # Select first non-separator item
+        for i in range(self._fmt_combo.count()):
+            if self._fmt_combo.itemData(i) is not None:
+                self._fmt_combo.setCurrentIndex(i)
+                break
+
+    def _on_format_changed(self):
+        """Update description label when format selection changes."""
+        key = self._fmt_combo.currentData()
+        if key and key in self._config.get("formats", {}):
+            desc = self._config["formats"][key].get("description", "")
+            self._fmt_desc.setText(desc)
+        else:
+            self._fmt_desc.setText("")
+            # If separator selected, advance to next real item
+            idx = self._fmt_combo.currentIndex()
+            for i in range(idx + 1, self._fmt_combo.count()):
+                if self._fmt_combo.itemData(i) is not None:
+                    self._fmt_combo.setCurrentIndex(i)
+                    return
+
+    def _get_selected_format(self):
+        """Return the format key for the currently selected dropdown item."""
+        key = self._fmt_combo.currentData()
+        if key is None:
+            # Somehow on a separator — find nearest real format
+            for i in range(self._fmt_combo.count()):
+                if self._fmt_combo.itemData(i) is not None:
+                    return self._fmt_combo.itemData(i)
+        return key
+
 
     # -----------------------------------------------------------------------
     # File/folder management
@@ -822,7 +896,7 @@ class BurnwrightWindow(QMainWindow):
             self._append_log("ERROR", "Please select an output directory.")
             return
 
-        fmt      = "vcd" if self._fmt_vcd.isChecked() else "svcd"
+        fmt      = self._get_selected_format()
         name     = self._name_edit.text().strip().replace(" ", "_")
         inputs   = [self._file_list.item(i).text()
                     for i in range(self._file_list.count())]

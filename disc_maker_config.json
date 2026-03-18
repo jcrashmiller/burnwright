@@ -21,7 +21,9 @@
       "video_codec": "mpeg1video",
       "mplex_format": 1,
       "vcdimager_class": "vcd",
-      "vcdimager_version": "2.0"
+      "vcdimager_version": "2.0",
+      "display_name": "VCD 2.0",
+      "description": "Video CD \u2014 ~74 min per disc, MPEG-1, maximum compatibility"
     },
     "svcd": {
       "capacity_seconds": 2700,
@@ -44,7 +46,9 @@
       "video_codec": "mpeg2video",
       "mplex_format": 4,
       "vcdimager_class": "svcd",
-      "vcdimager_version": "1.0"
+      "vcdimager_version": "1.0",
+      "display_name": "SVCD",
+      "description": "Super Video CD \u2014 ~35-45 min per disc, MPEG-2, better quality"
     }
   },
   "safety_margin": 0.95,
@@ -56,5 +60,11 @@
   "log_level": "info",
   "split_threshold_minutes": 60,
   "no_split_default": false,
-  "balance_discs_default": false
+  "balance_discs_default": false,
+  "format_groups": {
+    "CD-R Video": [
+      "vcd",
+      "svcd"
+    ]
+  }
 }

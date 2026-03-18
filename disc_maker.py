@@ -67,9 +67,8 @@ Examples:
 
     parser.add_argument(
         "--format",
-        choices=["vcd", "svcd"],
         required=True,
-        help="Output format: vcd or svcd"
+        help="Output format — must match a key in disc_maker_config.json formats section"
     )
 
     parser.add_argument(
@@ -1287,6 +1286,13 @@ def main():
         output_dir,
         args.name
     )
+
+    # Validate format against config
+    available_formats = list(config.get("formats", {}).keys())
+    if args.format not in available_formats:
+        print(f"ERROR: Unknown format '{args.format}'")
+        print(f"Available formats: {', '.join(available_formats)}")
+        sys.exit(1)
 
     log.info("disc_maker starting")
     log.info(f"Format: {args.format.upper()}")
