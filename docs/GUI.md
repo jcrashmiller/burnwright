@@ -30,7 +30,7 @@ python3 burnwright_gui.py
 
 ## Interface
 
-![burnwright GUI screenshot](screenshot.png)
+![burnwright GUI screenshot](../images/screenshot_gui.png)
 
 ### Job settings
 
